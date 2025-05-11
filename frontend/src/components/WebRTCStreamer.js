@@ -120,23 +120,25 @@ function WebRTCStreamer({ role = "broadcaster" }) {
       socket.emit("connectConsumerTransport", { dtlsParameters }, callback);
     });
 
-    const consumerParameters = await new Promise((resolve) =>
+    const consumerParamsList = await new Promise((resolve) =>
       socket.emit("consume", { rtpCapabilities: device.rtpCapabilities }, resolve)
     );
-
-    console.log(consumerParameters);
-
+    
+    console.log("Received consumer parameters:", consumerParamsList);
+    
     const mediaStream = new MediaStream();
-
-    const consumer = await transport.consume({
-      id: consumerParameters.id,
-      producerId: consumerParameters.producerId,
-      kind: consumerParameters.kind,
-      rtpParameters: consumerParameters.rtpParameters,
-    });
-    mediaStream.addTrack(consumer.track);
-
-
+    
+    for (const params of consumerParamsList) {
+      const consumer = await transport.consume({
+        id: params.id,
+        producerId: params.producerId,
+        kind: params.kind,
+        rtpParameters: params.rtpParameters,
+      });
+    
+      mediaStream.addTrack(consumer.track);
+    }
+    
     remoteVideoRef.current.srcObject = mediaStream;
 
     remoteVideoRef.current.srcObject.getTracks().forEach(track => console.log(track.kind));

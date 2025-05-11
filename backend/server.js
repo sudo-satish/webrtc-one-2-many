@@ -23,6 +23,7 @@ let worker;
 let router;
 let broadcasterTransport;
 let broadcasterProducer;
+let broadcasterProducers = {};
 let consumers = {};
 
 (async () => {
@@ -66,10 +67,12 @@ io.on("connection", (socket) => {
   });
 
   socket.on("produce", async ({ kind, rtpParameters }, callback) => {
-    broadcasterProducer = await broadcasterTransport.produce({ kind, rtpParameters });
-    callback({ id: broadcasterProducer.id });
+    const producer = await broadcasterTransport.produce({ kind, rtpParameters });
+  
+    broadcasterProducers[kind] = producer;
+  
+    callback({ id: producer.id });
   });
-
   socket.on("createConsumerTransport", async (callback) => {
     const transport = await router.createWebRtcTransport(config.webRtcTransport);
     consumers[socket.id] = { transport };
@@ -97,25 +100,31 @@ io.on("connection", (socket) => {
   });
 
   socket.on("consume", async ({ rtpCapabilities }, callback) => {
-    if (!router.canConsume({ producerId: broadcasterProducer.id, rtpCapabilities })) {
-      return callback({ error: "Cannot consume" });
+    const consumerParamsList = [];
+    const consumerTransport = consumers[socket.id].transport;
+  
+    for (const kind in broadcasterProducers) {
+      const producer = broadcasterProducers[kind];
+  
+      if (!router.canConsume({ producerId: producer.id, rtpCapabilities })) continue;
+  
+      const consumer = await consumerTransport.consume({
+        producerId: producer.id,
+        rtpCapabilities,
+        paused: false,
+      });
+  
+      consumerParamsList.push({
+        id: consumer.id,
+        producerId: producer.id,
+        kind: consumer.kind,
+        rtpParameters: consumer.rtpParameters,
+      });
+  
+      // Optionally store consumer if needed
     }
-
-    const transport = consumers[socket.id].transport;
-    const consumer = await transport.consume({
-      producerId: broadcasterProducer.id,
-      rtpCapabilities,
-      paused: false,
-    });
-
-    consumers[socket.id].consumer = consumer;
-
-    callback({
-      id: consumer.id,
-      producerId: broadcasterProducer.id,
-      kind: consumer.kind,
-      rtpParameters: consumer.rtpParameters,
-    });
+  
+    callback(consumerParamsList); // Return both audio and video
   });
 
   socket.on("disconnect", () => {
